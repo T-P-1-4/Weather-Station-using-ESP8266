@@ -1,27 +1,26 @@
 #include <Arduino.h>
 #include <AALeC-V3.h>
+#include <LittleFS.h>
 
 
 // put function declarations here:
-int myFunction(int, int);
 void setLEDsOff(int);
 void setDisplayOff();
 bool wait_for_button_press(uint16_t);
+void loadEnvVars();
 
 // global vars
 unsigned long messureDistanceInMillis = 60000; //15 min aka 900 s 
-int counter=0;
 bool buttonPressed = false;
 bool displayON = true;
 float currentTemp = 0;
 float currentPressure = 0;
+String WIFI_SSID, WIFI_PASS, WEATHER_API_TOKEN, WEATHER_API_URL, CLOUD_TOKEN, CLOUD_URL; // Vars from .env file
 
 void setup() {
-  // put your setup code here, to run once:
   aalec.init(5);
-  int result = myFunction(counter, 1);
-  aalec.print_line(1,result);
   setLEDsOff(5);
+  loadEnvVars();
 }
 
 void loop() {
@@ -37,19 +36,11 @@ void loop() {
 
     if (wait_for_button_press(2000))  displayON = !displayON;
 
-    counter = myFunction(counter,2);
     if (displayON){
-    aalec.print_line(1,counter);
     aalec.print_line(2, "Druck: "+ String(currentPressure));
     aalec.print_line(3,"Temperatur: "+String(currentTemp));
     }
   }
-
-}
-
-// put function definitions here:
-int myFunction(int x, int y) {
-  return x + y;
 }
 
 void setLEDsOff(int n){
@@ -82,4 +73,51 @@ bool wait_for_button_press(uint16_t delayTime){
     delay(10); // Small delay to avoid busy-waiting
   }
   return false; // Return false if the button was not pressed 
+}
+
+void loadEnvVars(){
+  if (!LittleFS.begin()) {
+    Serial.println("LittleFS konnte nicht gemountet werden");
+    return;
+  }
+   File file = LittleFS.open("/config.env", "r");
+  if (!file) {
+    aalec.print_line(5,"Fehler: config.env nicht gefunden!");
+    return;
+  }
+
+  while (file.available()) {
+    String line = file.readStringUntil('\n');
+
+    int separator = line.indexOf('=');
+    if (separator > 0) {
+      String key = line.substring(0, separator);
+      String value = line.substring(separator + 1);
+
+      key.trim();
+      value.trim();
+
+      if (key == "WIFI_SSID") {
+        WIFI_SSID = value;
+      } else if (key == "WIFI_PASS") {
+        WIFI_PASS = value;
+      }else if (key == "WEATHER_API_TOKEN") {
+        WEATHER_API_TOKEN = value;
+      }else if (key == "WEATHER_API_URL") {
+        WEATHER_API_URL = value;
+      }else if (key == "CLOUD_TOKEN") {
+        CLOUD_TOKEN = value;
+      }else if (key == "CLOUD_URL") {
+        CLOUD_URL = value;
+      }
+    }
+  }
+  // Seriell debug output
+  Serial.println(WIFI_SSID);
+  Serial.println(WIFI_PASS);
+  Serial.println(WEATHER_API_TOKEN);
+  Serial.println(WEATHER_API_URL);
+  Serial.println(CLOUD_TOKEN);
+  Serial.println(CLOUD_URL);
+  file.close();
 }
