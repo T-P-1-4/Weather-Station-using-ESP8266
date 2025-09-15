@@ -1,3 +1,4 @@
 .pio
 .vscode
 /src/AALeC_Weather_Station.code-workspace
+/data/config.env
