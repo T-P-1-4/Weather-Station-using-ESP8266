@@ -1,13 +1,16 @@
 #include <Arduino.h>
 #include <AALeC-V3.h>
 #include <LittleFS.h>
+#include <ESP8266WiFi.h>
 
 
 // put function declarations here:
 void setLEDsOff(int);
 void setDisplayOff();
-bool wait_for_button_press(uint16_t);
+bool waitForButtonPress(uint16_t);
 void loadEnvVars();
+void connectWifi();
+void disconnectWifi();
 
 // global vars
 unsigned long messureDistanceInMillis = 60000; //15 min aka 900 s 
@@ -25,16 +28,23 @@ void setup() {
 
 void loop() {
   // put your main code here, to run repeatedly:
+  connectWifi();
+  aalec.print_line(4,"wifi connected");
+  delay(10000);
+  //do smth
+  disconnectWifi();
+  aalec.print_line(4,"wifi disconnected");
+  
   // update values of p and t
   currentPressure = aalec.get_pressure();
   currentTemp = aalec.get_temp();
 
-  
+
   unsigned long startTime = millis();
   // wait till difference between start and current time is less than delayTime
   while ((millis() - startTime < messureDistanceInMillis)){
 
-    if (wait_for_button_press(2000))  displayON = !displayON;
+    if (waitForButtonPress(2000))  displayON = !displayON;
 
     if (displayON){
     aalec.print_line(2, "Druck: "+ String(currentPressure));
@@ -59,7 +69,7 @@ void setDisplayOff(){
   }
 }
 
-bool wait_for_button_press(uint16_t delayTime){
+bool waitForButtonPress(uint16_t delayTime){
   unsigned long startTime = millis();
   // wait till difference between start and current time is less than delayTime
   while ((millis() - startTime < delayTime)){
@@ -120,4 +130,19 @@ void loadEnvVars(){
   Serial.println(CLOUD_TOKEN);
   Serial.println(CLOUD_URL);
   file.close();
+}
+
+void connectWifi(){
+  Serial.println("\nConnecting to WiFi...");
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  while (WiFi.status() != WL_CONNECTED) {
+    waitForButtonPress(1000);
+    Serial.print(".");
+  }
+  Serial.println("\r\nWiFi connected!");
+}
+
+void disconnectWifi(){
+  WiFi.disconnect();
 }
