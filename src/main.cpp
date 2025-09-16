@@ -2,7 +2,10 @@
 #include <AALeC-V3.h>
 #include <LittleFS.h>
 #include <ESP8266WiFi.h>
+#include <ESP8266HTTPClient.h>
+#include <ArduinoJson.h>
 
+#define MAX_POI 20
 
 // put function declarations here:
 void setLEDsOff(int);
@@ -11,19 +14,27 @@ bool waitForButtonPress(uint16_t);
 void loadEnvVars();
 void connectWifi();
 void disconnectWifi();
+void loadPoi();
+void apiRequests();
 
 // global vars
 unsigned long messureDistanceInMillis = 60000; //15 min aka 900 s 
-bool buttonPressed = false;
 bool displayON = true;
 float currentTemp = 0;
 float currentPressure = 0;
 String WIFI_SSID, WIFI_PASS, WEATHER_API_TOKEN, WEATHER_API_URL, CLOUD_TOKEN, CLOUD_URL; // Vars from .env file
+String PointsOfInterest [MAX_POI]; // placeholder array for points of interest
 
 void setup() {
+  // start LittleFS to use file management
+  if (!LittleFS.begin()) {
+    Serial.println("LittleFS konnte nicht gemountet werden");
+    return;
+  }
   aalec.init(5);
   setLEDsOff(5);
   loadEnvVars();
+  loadPoi();
 }
 
 void loop() {
@@ -86,11 +97,7 @@ bool waitForButtonPress(uint16_t delayTime){
 }
 
 void loadEnvVars(){
-  if (!LittleFS.begin()) {
-    Serial.println("LittleFS konnte nicht gemountet werden");
-    return;
-  }
-   File file = LittleFS.open("/config.env", "r");
+  File file = LittleFS.open("/config.env", "r");
   if (!file) {
     aalec.print_line(5,"Fehler: config.env nicht gefunden!");
     return;
@@ -146,3 +153,39 @@ void connectWifi(){
 void disconnectWifi(){
   WiFi.disconnect();
 }
+
+void loadPoi(){
+  File file = LittleFS.open("/poi.json", "r");
+  if (!file) {
+   Serial.println("Fehler: poi.json nicht gefunden!");
+    return;
+  }
+
+  DynamicJsonDocument doc(1024); // dynamic json size bigger then file size of poi.json
+  DeserializationError error = deserializeJson(doc, file); //parse
+  file.close();
+
+  if (error) {
+    Serial.println( String("Fehler beim Parsen: ") + error.c_str());
+    return;
+  }
+
+  // read
+  JsonArray poiArray = doc["POI"];
+  int i = 0;
+  for (const char* poi : poiArray) {
+    if (i < MAX_POI) {
+      PointsOfInterest[i] = poi; 
+      i++;
+    }
+  }
+
+  // debug
+  for (int j = 0; j < i; j++) {
+    Serial.println(String("POI[") + j + "]: " + PointsOfInterest[j]);
+  }
+}
+
+void apiRequests(){
+  
+  }
