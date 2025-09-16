@@ -18,7 +18,7 @@ void loadPoi();
 void apiRequests();
 
 // global vars
-unsigned long messureDistanceInMillis = 60000; //15 min aka 900 s 
+unsigned long messureDistanceInMillis = 900000; //15 min aka 900 s 
 bool displayON = true;
 float currentTemp = 0;
 float currentPressure = 0;
@@ -41,8 +41,7 @@ void loop() {
   // put your main code here, to run repeatedly:
   connectWifi();
   aalec.print_line(4,"wifi connected");
-  delay(10000);
-  //do smth
+  apiRequests();
   disconnectWifi();
   aalec.print_line(4,"wifi disconnected");
   
@@ -187,5 +186,35 @@ void loadPoi(){
 }
 
 void apiRequests(){
+   WiFiClientSecure client;
+  client.setInsecure(); 
+  HTTPClient https;
+
+  for (String point : PointsOfInterest){
+    if (point == "") continue;
+    // replace empty space and umlaute
+    point.replace(" ","%20");
+    point.replace("ä", "%C3%A4");
+    point.replace("ö", "%C3%B6");
+    point.replace("ü", "%C3%BC");
+    point.replace("ß", "%C3%9F");
+
+    String url = WEATHER_API_URL + "key=" + WEATHER_API_TOKEN + "&q=" + point + "&aqi=no";
+    Serial.println("Request URL: " + url);
+    waitForButtonPress(1000);
+    
+    if (https.begin(client, url)) {
+      int httpCode = https.GET();
+
+      if (httpCode == HTTP_CODE_OK) {
+        String res = https.getString();
+        Serial.println("New API data:");
+        Serial.println(res);
+      } else {
+        Serial.println("API call error: " + String(httpCode));
+      }
+      https.end();
+    }
+  }
   
   }
