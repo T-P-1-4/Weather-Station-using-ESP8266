@@ -15,6 +15,7 @@ void loadEnvVars();
 void connectWifi();
 void disconnectWifi();
 void loadPoi();
+void printSingleData(String s[], size_t len);
 void apiRequests();
 
 // global vars
@@ -22,8 +23,12 @@ unsigned long messureDistanceInMillis = 900000; //15 min aka 900 s
 bool displayON = true;
 float currentTemp = 0;
 float currentPressure = 0;
-String WIFI_SSID, WIFI_PASS, WEATHER_API_TOKEN, WEATHER_API_URL, CLOUD_TOKEN, CLOUD_URL; // Vars from .env file
+String WIFI_SSID, WIFI_PASS, WEATHER_API_TOKEN, WEATHER_API_URL,WEATHER_API_FINGERPRINT, CLOUD_TOKEN, CLOUD_URL; // Vars from .env file
 String PointsOfInterest [MAX_POI]; // placeholder array for points of interest
+String crutialColumns [] = {"name", "lat", "lon", "localtime", "last_updated", "temp_c", "is_day",
+                           "condition_text", "condition_id", "wind_kph", "wind_degree", "wind_dir",
+                           "pressure_mb", "pressure_in", "humidity", "cloud", "uv"};
+String crutialValues [sizeof(crutialColumns)/sizeof(crutialColumns[0])]; // placeholder for values, length of column array
 
 void setup() {
   // start LittleFS to use file management
@@ -121,6 +126,8 @@ void loadEnvVars(){
         WEATHER_API_TOKEN = value;
       }else if (key == "WEATHER_API_URL") {
         WEATHER_API_URL = value;
+      }else if (key=="WEATHER_API_FINGERPRINT"){
+        WEATHER_API_FINGERPRINT = value;
       }else if (key == "CLOUD_TOKEN") {
         CLOUD_TOKEN = value;
       }else if (key == "CLOUD_URL") {
@@ -133,6 +140,7 @@ void loadEnvVars(){
   Serial.println(WIFI_PASS);
   Serial.println(WEATHER_API_TOKEN);
   Serial.println(WEATHER_API_URL);
+  Serial.println(WEATHER_API_FINGERPRINT);
   Serial.println(CLOUD_TOKEN);
   Serial.println(CLOUD_URL);
   file.close();
@@ -186,8 +194,8 @@ void loadPoi(){
 }
 
 void apiRequests(){
-   WiFiClientSecure client;
-  client.setInsecure(); 
+  WiFiClientSecure client;
+  client.setFingerprint(WEATHER_API_FINGERPRINT.c_str());
   HTTPClient https;
 
   for (String point : PointsOfInterest){
@@ -201,8 +209,10 @@ void apiRequests(){
 
     String url = WEATHER_API_URL + "key=" + WEATHER_API_TOKEN + "&q=" + point + "&aqi=no";
     Serial.println("Request URL: " + url);
-    waitForButtonPress(1000);
-    
+    //waitForButtonPress(1000);
+    Serial.println(WiFi.dnsIP());
+
+    Serial.printf("Free heap: %u\n", ESP.getFreeHeap());
     if (https.begin(client, url)) {
       int httpCode = https.GET();
 
@@ -210,11 +220,34 @@ void apiRequests(){
         String res = https.getString();
         Serial.println("New API data:");
         Serial.println(res);
+        
+        // now deserialize response
+        DynamicJsonDocument doc(4096); 
+        DeserializationError error = deserializeJson(doc, res);
+
+        if (error) {
+          Serial.println("JSON parse failed: " + String(error.c_str()));
+          return;
+        }
+        for (int i = 0; i<int (sizeof(crutialColumns)/sizeof(crutialColumns[0])); i++){
+          if (i<4){
+            crutialValues[i] = String(doc["location"][crutialColumns[i]]);
+          } else if (i < 7){
+            crutialValues[i] = String(doc["current"][crutialColumns[i]]);
+          } else if (i == 7) crutialValues[i] = String(doc["current"]["condition"]["text"]);
+            else if (i == 8) crutialValues[i] = String(doc["current"]["condition"]["code"]);
+            else{
+              crutialValues[i] = String(doc["current"][crutialColumns[i]]);
+            }
+        }
+        printSingleData(crutialValues, int(sizeof(crutialValues)/sizeof(crutialValues[0])));
+        //crutialValues = [sizeof(crutialColumns)/sizeof(crutialColumns[0])]; // todo reset values before add new dataset from request
+        
       } else {
         Serial.println("API call error: " + String(httpCode));
+        Serial.println( https.errorToString(httpCode));
       }
       https.end();
     }
   }
-  
   }
