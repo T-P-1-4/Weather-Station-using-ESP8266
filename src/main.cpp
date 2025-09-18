@@ -16,6 +16,7 @@ void connectWifi();
 void disconnectWifi();
 void loadPoi();
 void printSingleData(String s[], size_t len);
+void writeDataToCSV(String filename);
 void apiRequests();
 
 // global vars
@@ -193,6 +194,10 @@ void loadPoi(){
   }
 }
 
+void writeDataToCSV(String filename){
+  
+}
+
 void apiRequests(){
   WiFiClientSecure client;
   client.setFingerprint(WEATHER_API_FINGERPRINT.c_str());
@@ -212,14 +217,13 @@ void apiRequests(){
     //waitForButtonPress(1000);
     Serial.println(WiFi.dnsIP());
 
-    Serial.printf("Free heap: %u\n", ESP.getFreeHeap());
     if (https.begin(client, url)) {
       int httpCode = https.GET();
 
       if (httpCode == HTTP_CODE_OK) {
         String res = https.getString();
         Serial.println("New API data:");
-        Serial.println(res);
+        //Serial.println(res);
         
         // now deserialize response
         DynamicJsonDocument doc(4096); 
@@ -241,7 +245,7 @@ void apiRequests(){
             }
         }
         printSingleData(crutialValues, int(sizeof(crutialValues)/sizeof(crutialValues[0])));
-        //crutialValues = [sizeof(crutialColumns)/sizeof(crutialColumns[0])]; // todo reset values before add new dataset from request
+        //crutialValues = [sizeof(crutialColumns)/sizeof(crutialColumns[0])]; // TODO reset values before add new dataset from request
         
       } else {
         Serial.println("API call error: " + String(httpCode));
