@@ -7,6 +7,7 @@
 
 #define MAX_POI 20
 
+
 // put function declarations here:
 void setLEDsOff(int);
 void setDisplayOff();
@@ -21,6 +22,7 @@ void apiRequests();
 
 // global vars
 unsigned long messureDistanceInMillis = 900000; //15 min aka 900 s 
+unsigned long MAX_FILE_SIZE = 1024*1024; //1MB
 bool displayON = true;
 float currentTemp = 0;
 float currentPressure = 0;
@@ -30,6 +32,8 @@ String crutialColumns [] = {"name", "lat", "lon", "localtime", "last_updated", "
                            "condition_text", "condition_id", "wind_kph", "wind_degree", "wind_dir",
                            "pressure_mb", "pressure_in", "humidity", "cloud", "uv"};
 String crutialValues [sizeof(crutialColumns)/sizeof(crutialColumns[0])]; // placeholder for values, length of column array
+String currentFilename = "filename1";
+
 
 void setup() {
   // start LittleFS to use file management
@@ -54,6 +58,17 @@ void loop() {
   // update values of p and t
   currentPressure = aalec.get_pressure();
   currentTemp = aalec.get_temp();
+
+  //write local data to file
+  crutialValues[0] = "ESP";
+  crutialValues[5] = String (currentTemp);
+  crutialValues[12] = String (currentPressure);
+  writeDataToCSV(currentFilename);
+  std::fill(std::begin(crutialValues), std::end(crutialValues), "");
+
+  //test read file:
+  File f = LittleFS.open("/"+currentFilename+".csv", "r");
+  Serial.println(f.readString());
 
 
   unsigned long startTime = millis();
@@ -213,7 +228,36 @@ void printSingleData(String s[], size_t len){
 }
 
 void writeDataToCSV(String filename){
-  
+  File csv = LittleFS.open("/"+filename+".csv", "a"); 
+  if(!csv){
+    Serial.println("Fehler im LittleFS, beim öffnen oder anlegen der Datei");
+    return;
+  }
+  size_t size = csv.size();
+  Serial.println(size);
+  if (size == 0){ //create header if file is empty
+    Serial.println("Datei ist leer");
+    String header = "";
+    for(String column : crutialColumns){
+      header = header + column + ";";
+    }
+    header.remove(header.length()-1); //remove last ;
+    csv.print(header+"\n");
+  }
+  else if (size > MAX_FILE_SIZE){
+    Serial.println("Datei ist voll");
+    ;//call function for next file. recursive?
+  }
+  else{ // add data
+    Serial.println("Daten werden geschrieben");
+    String row = "";
+    for (String value: crutialValues){
+      row = row + value +";";
+    }
+    row.remove(row.length()-1); //remove last ;
+    csv.print(row+"\n");
+  }
+
 }
 
 void apiRequests(){
@@ -261,8 +305,9 @@ void apiRequests(){
             }
         }
         printSingleData(crutialValues, int(sizeof(crutialValues)/sizeof(crutialValues[0])));
-        //crutialValues = [sizeof(crutialColumns)/sizeof(crutialColumns[0])]; // TODO reset values before add new dataset from request
-        
+        writeDataToCSV(currentFilename);
+        std::fill(std::begin(crutialValues), std::end(crutialValues), "");
+
       } else {
         Serial.println("API call error: " + String(httpCode));
         Serial.println( https.errorToString(httpCode));
