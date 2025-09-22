@@ -151,6 +151,18 @@ void connectWifi(){
   Serial.println("\nConnecting to WiFi...");
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
+  //Due to problems with dns server I had to change to google dns
+  while (WiFi.status() != WL_CONNECTED) {
+    waitForButtonPress(1000);
+    Serial.print(".");
+  }
+  IPAddress local = WiFi.localIP();
+  IPAddress gateway = WiFi.gatewayIP();
+  IPAddress subnet = WiFi.subnetMask();
+  WiFi.disconnect();
+  WiFi.mode(WIFI_STA);
+  WiFi.config(local, gateway, subnet, IPAddress(8,8,8,8), IPAddress(8,8,4,4));
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
   while (WiFi.status() != WL_CONNECTED) {
     waitForButtonPress(1000);
     Serial.print(".");
@@ -194,6 +206,12 @@ void loadPoi(){
   }
 }
 
+void printSingleData(String s[], size_t len){
+  for (int i=0; i <len;i++){
+    Serial.println(crutialColumns[i]+": "+ s[i]);
+  }
+}
+
 void writeDataToCSV(String filename){
   
 }
@@ -214,8 +232,7 @@ void apiRequests(){
 
     String url = WEATHER_API_URL + "key=" + WEATHER_API_TOKEN + "&q=" + point + "&aqi=no";
     Serial.println("Request URL: " + url);
-    //waitForButtonPress(1000);
-    Serial.println(WiFi.dnsIP());
+    waitForButtonPress(50);
 
     if (https.begin(client, url)) {
       int httpCode = https.GET();
@@ -223,7 +240,6 @@ void apiRequests(){
       if (httpCode == HTTP_CODE_OK) {
         String res = https.getString();
         Serial.println("New API data:");
-        //Serial.println(res);
         
         // now deserialize response
         DynamicJsonDocument doc(4096); 
@@ -254,4 +270,4 @@ void apiRequests(){
       https.end();
     }
   }
-  }
+}
