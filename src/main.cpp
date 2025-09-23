@@ -21,6 +21,7 @@ void writeDataToCSV(String filename);
 void apiRequests();
 bool cloudUpload(String filename);
 void deleteFile(String filename);
+void updateCounterFile();
 
 // global vars
 unsigned long messureDistanceInMillis = 900000; //15 min aka 900 s 
@@ -45,6 +46,19 @@ void setup() {
     Serial.println("LittleFS konnte nicht gemountet werden");
     return;
   }
+  //init counter file for hard reset or blackout
+  if (LittleFS.exists("/counter.txt")){
+    File counterFile = LittleFS.open("/counter.txt", "r");
+    currentFileCounter = counterFile.readString().toInt();
+    Serial.println("file counter bei start: "+ String(currentFileCounter));
+  }else{
+    File counterFile = LittleFS.open("/counter.txt", "w");
+    if (counterFile.size() == 0){
+      counterFile.println("1");
+    }
+  }
+  
+
   aalec.init(5);
   setLEDsOff(5);
   loadEnvVars();
@@ -257,7 +271,7 @@ void writeDataToCSV(String filename){
       deleteFile(currentFilename + String(currentFileCounter-1)+".csv");
     } 
     writeDataToCSV(currentFilename + String(currentFileCounter)); //safe data to new file
-    
+    updateCounterFile();
   }
   else{ // add data
     Serial.println("Daten werden geschrieben");
@@ -352,5 +366,10 @@ void deleteFile(String filename){
    }
    if (LittleFS.exists(filename)) Serial.println(filename +" existiert immernoch");
    listFiles();
+}
+
+void updateCounterFile(){
+  File f = LittleFS.open("/counter.txt", "w");
+  f.println(String(currentFileCounter));
 }
 
