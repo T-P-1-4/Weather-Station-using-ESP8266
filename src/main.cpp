@@ -19,10 +19,12 @@ void loadPoi();
 void printSingleData(String s[], size_t len);
 void writeDataToCSV(String filename);
 void apiRequests();
+void cloudUpload(String filename);
 
 // global vars
 unsigned long messureDistanceInMillis = 900000; //15 min aka 900 s 
-unsigned long MAX_FILE_SIZE = 1024*1024; //1MB
+unsigned long MAX_FILE_SIZE = 1024*50; //50kB RAM Limit
+unsigned long DATA_ROW_SIZE = 250; // max 250B per Data row
 bool displayON = true;
 float currentTemp = 0;
 float currentPressure = 0;
@@ -32,7 +34,8 @@ String crutialColumns [] = {"name", "lat", "lon", "localtime", "last_updated", "
                            "condition_text", "condition_id", "wind_kph", "wind_degree", "wind_dir",
                            "pressure_mb", "pressure_in", "humidity", "cloud", "uv"};
 String crutialValues [sizeof(crutialColumns)/sizeof(crutialColumns[0])]; // placeholder for values, length of column array
-String currentFilename = "filename1";
+String currentFilename = "data";
+int currentFileCounter = 1;
 
 
 void setup() {
@@ -63,11 +66,11 @@ void loop() {
   crutialValues[0] = "ESP";
   crutialValues[5] = String (currentTemp);
   crutialValues[12] = String (currentPressure);
-  writeDataToCSV(currentFilename);
+  writeDataToCSV(currentFilename + String(currentFileCounter));
   std::fill(std::begin(crutialValues), std::end(crutialValues), "");
 
   //test read file:
-  File f = LittleFS.open("/"+currentFilename+".csv", "r");
+  File f = LittleFS.open("/"+currentFilename+ String(currentFileCounter) +".csv", "r");
   Serial.println(f.readString());
 
 
@@ -244,9 +247,12 @@ void writeDataToCSV(String filename){
     header.remove(header.length()-1); //remove last ;
     csv.print(header+"\n");
   }
-  else if (size > MAX_FILE_SIZE){
+  else if ((size + DATA_ROW_SIZE) > MAX_FILE_SIZE){ 
     Serial.println("Datei ist voll");
-    ;//call function for next file. recursive?
+
+    currentFileCounter++; //increase counter
+    writeDataToCSV(currentFilename+ String(currentFileCounter)); //safe data to new file
+    cloudUpload(currentFilename+ String(currentFileCounter-1)); //upload old file
   }
   else{ // add data
     Serial.println("Daten werden geschrieben");
@@ -305,7 +311,7 @@ void apiRequests(){
             }
         }
         printSingleData(crutialValues, int(sizeof(crutialValues)/sizeof(crutialValues[0])));
-        writeDataToCSV(currentFilename);
+        writeDataToCSV(currentFilename + String(currentFileCounter));
         std::fill(std::begin(crutialValues), std::end(crutialValues), "");
 
       } else {
@@ -315,4 +321,8 @@ void apiRequests(){
       https.end();
     }
   }
+}
+
+void cloudUpload(String filename){
+  //upload and delete old file.
 }
