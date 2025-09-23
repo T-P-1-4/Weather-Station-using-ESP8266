@@ -19,7 +19,8 @@ void loadPoi();
 void printSingleData(String s[], size_t len);
 void writeDataToCSV(String filename);
 void apiRequests();
-void cloudUpload(String filename);
+bool cloudUpload(String filename);
+void deleteFile(String filename);
 
 // global vars
 unsigned long messureDistanceInMillis = 900000; //15 min aka 900 s 
@@ -247,12 +248,16 @@ void writeDataToCSV(String filename){
     header.remove(header.length()-1); //remove last ;
     csv.print(header+"\n");
   }
-  else if ((size + DATA_ROW_SIZE) > MAX_FILE_SIZE){ 
+  else if ((size + DATA_ROW_SIZE) > 1024){  // MAX_FILE_SIZE
     Serial.println("Datei ist voll");
 
     currentFileCounter++; //increase counter
-    writeDataToCSV(currentFilename+ String(currentFileCounter)); //safe data to new file
-    cloudUpload(currentFilename+ String(currentFileCounter-1)); //upload old file
+    
+    if (cloudUpload(currentFilename + String(currentFileCounter-1))){//upload old file
+      deleteFile(currentFilename + String(currentFileCounter-1)+".csv");
+    } 
+    writeDataToCSV(currentFilename + String(currentFileCounter)); //safe data to new file
+    
   }
   else{ // add data
     Serial.println("Daten werden geschrieben");
@@ -310,7 +315,7 @@ void apiRequests(){
               crutialValues[i] = String(doc["current"][crutialColumns[i]]);
             }
         }
-        printSingleData(crutialValues, int(sizeof(crutialValues)/sizeof(crutialValues[0])));
+        //printSingleData(crutialValues, int(sizeof(crutialValues)/sizeof(crutialValues[0])));
         writeDataToCSV(currentFilename + String(currentFileCounter));
         std::fill(std::begin(crutialValues), std::end(crutialValues), "");
 
@@ -323,6 +328,29 @@ void apiRequests(){
   }
 }
 
-void cloudUpload(String filename){
-  //upload and delete old file.
+bool cloudUpload(String filename){
+  //upload old file.
+  return true;
 }
+
+void listFiles() {
+    Serial.println("Dateien im LittleFS:");
+  Dir dir = LittleFS.openDir("/");
+  while (dir.next()) {
+    Serial.printf("  %s\t (%d Bytes)\n", dir.fileName().c_str(), dir.fileSize());
+  }
+}
+
+void deleteFile(String filename){
+   if (LittleFS.exists(filename)) {
+    Serial.println(filename +" existiert");
+    if (LittleFS.remove(filename)) {
+      Serial.println("Datei erfolgreich gelöscht");
+    } else {
+      Serial.println("Fehler beim Löschen");
+    }
+   }
+   if (LittleFS.exists(filename)) Serial.println(filename +" existiert immernoch");
+   listFiles();
+}
+
