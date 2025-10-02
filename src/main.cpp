@@ -4,6 +4,8 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
 #include <ArduinoJson.h>
+#include <WebSocketsClient.h>
+#include <vector>
 
 #define MAX_POI 20
 
@@ -19,18 +21,21 @@ void loadPoi();
 void printSingleData(String s[], size_t len);
 void writeDataToCSV(String filename);
 void apiRequests();
-bool cloudUpload(String filename);
+void webSocketEvent(WStype_t type, uint8_t * payload, size_t length);
+String toJson(String filename);
+void websocketUpdate();
+void listFiles();
 void deleteFile(String filename);
 void updateCounterFile();
 
 // global vars
 unsigned long messureDistanceInMillis = 900000; //15 min aka 900 s 
-unsigned long MAX_FILE_SIZE = 1024*50; //50kB RAM Limit
+unsigned long MAX_FILE_SIZE = 1024*16; //16kB RAM Limit per file
 unsigned long DATA_ROW_SIZE = 250; // max 250B per Data row
 bool displayON = true;
 float currentTemp = 0;
 float currentPressure = 0;
-String WIFI_SSID, WIFI_PASS, WEATHER_API_TOKEN, WEATHER_API_URL,WEATHER_API_FINGERPRINT, CLOUD_TOKEN, CLOUD_URL; // Vars from .env file
+String WIFI_SSID, WIFI_PASS, WEATHER_API_TOKEN, WEATHER_API_URL,WEATHER_API_FINGERPRINT, CLOUD_TOKEN, CLOUD_FINGERPRINT, CLOUD_URL, WEBSOCKET_PORT; // Vars from .env file
 String PointsOfInterest [MAX_POI]; // placeholder array for points of interest
 String crutialColumns [] = {"name", "lat", "lon", "localtime", "last_updated", "temp_c", "is_day",
                            "condition_text", "condition_id", "wind_kph", "wind_degree", "wind_dir",
@@ -38,6 +43,7 @@ String crutialColumns [] = {"name", "lat", "lon", "localtime", "last_updated", "
 String crutialValues [sizeof(crutialColumns)/sizeof(crutialColumns[0])]; // placeholder for values, length of column array
 String currentFilename = "data";
 int currentFileCounter = 1;
+FSInfo fs_info;
 
 
 void setup() {
@@ -57,7 +63,6 @@ void setup() {
       counterFile.println("1");
     }
   }
-  
 
   aalec.init(5);
   setLEDsOff(5);
@@ -67,11 +72,21 @@ void setup() {
 
 void loop() {
   // put your main code here, to run repeatedly:
+ 
+  LittleFS.info(fs_info);
+
+  Serial.print("Total Bytes: ");
+  Serial.println(fs_info.totalBytes);
+  Serial.print("Benutzte Bytes: ");
+  Serial.println(fs_info.usedBytes);
+  Serial.print("Freie Bytes: ");
+  Serial.println(fs_info.totalBytes - fs_info.usedBytes);
+  Serial.println("Speicher Belegt: "+ String(fs_info.usedBytes / fs_info.totalBytes *100) + "%");
+
+
   connectWifi();
-  aalec.print_line(4,"wifi connected");
+  if (displayON) aalec.print_line(4,"wifi connected");
   apiRequests();
-  disconnectWifi();
-  aalec.print_line(4,"wifi disconnected");
   
   // update values of p and t
   currentPressure = aalec.get_pressure();
@@ -83,6 +98,12 @@ void loop() {
   crutialValues[12] = String (currentPressure);
   writeDataToCSV(currentFilename + String(currentFileCounter));
   std::fill(std::begin(crutialValues), std::end(crutialValues), "");
+
+  listFiles();
+  websocketUpdate();
+
+  disconnectWifi();
+  if (displayON) aalec.print_line(4,"wifi disconnected");
 
   //test read file:
   File f = LittleFS.open("/"+currentFilename+ String(currentFileCounter) +".csv", "r");
@@ -137,7 +158,7 @@ bool waitForButtonPress(uint16_t delayTime){
 void loadEnvVars(){
   File file = LittleFS.open("/config.env", "r");
   if (!file) {
-    aalec.print_line(5,"Fehler: config.env nicht gefunden!");
+    if (displayON)  aalec.print_line(5,"Fehler: config.env nicht gefunden!");
     return;
   }
 
@@ -164,8 +185,12 @@ void loadEnvVars(){
         WEATHER_API_FINGERPRINT = value;
       }else if (key == "CLOUD_TOKEN") {
         CLOUD_TOKEN = value;
+      }else if (key == "CLOUD_FINGERPRINT") {
+        CLOUD_FINGERPRINT = value;
       }else if (key == "CLOUD_URL") {
         CLOUD_URL = value;
+      }else if (key == "WEBSOCKET_PORT") {
+        WEBSOCKET_PORT = value;
       }
     }
   }
@@ -177,6 +202,7 @@ void loadEnvVars(){
   Serial.println(WEATHER_API_FINGERPRINT);
   Serial.println(CLOUD_TOKEN);
   Serial.println(CLOUD_URL);
+  Serial.println(WEBSOCKET_PORT);
   file.close();
 }
 
@@ -267,9 +293,9 @@ void writeDataToCSV(String filename){
 
     currentFileCounter++; //increase counter
     
-    if (cloudUpload(currentFilename + String(currentFileCounter-1))){//upload old file
-      deleteFile(currentFilename + String(currentFileCounter-1)+".csv");
-    } 
+    //if (cloudUpload(currentFilename + String(currentFileCounter-1) + ".csv")){//upload old file
+    //  deleteFile(currentFilename + String(currentFileCounter-1) +".csv");
+    //} 
     writeDataToCSV(currentFilename + String(currentFileCounter)); //safe data to new file
     updateCounterFile();
   }
@@ -330,25 +356,116 @@ void apiRequests(){
             }
         }
         //printSingleData(crutialValues, int(sizeof(crutialValues)/sizeof(crutialValues[0])));
-        writeDataToCSV(currentFilename + String(currentFileCounter));
-        std::fill(std::begin(crutialValues), std::end(crutialValues), "");
 
       } else {
         Serial.println("API call error: " + String(httpCode));
         Serial.println( https.errorToString(httpCode));
+        return;
       }
       https.end();
+      writeDataToCSV(currentFilename + String(currentFileCounter));
+      std::fill(std::begin(crutialValues), std::end(crutialValues), "");
     }
   }
 }
 
-bool cloudUpload(String filename){
-  //upload old file.
-  return true;
+void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
+  switch(type) {
+    case WStype_DISCONNECTED: Serial.println("WebSocket getrennt"); break;
+    case WStype_CONNECTED:    Serial.println("WebSocket verbunden"); break;
+    case WStype_TEXT:
+      Serial.println("Nachricht erhalten.");
+      break;
+    case WStype_BIN: Serial.println("Binärnachricht erhalten"); break;
+  }
+}
+
+String toJson(String filename){
+
+  File f = LittleFS.open("/"+filename, "r");
+  if (!f) {
+    Serial.println("Fehler: Datei nicht gefunden!");
+    return "";
+  }
+  // create header with basic len
+  DynamicJsonDocument doc(512);
+  doc["filename"] = filename;
+
+  // serialize the doc
+  String output;
+  serializeJson(doc, output);
+  Serial.println("After doc :" +String(ESP.getFreeHeap()));
+
+  // replace } with second 
+  output.remove(output.length() - 1); // letzte "}" löschen
+  output += ",\"payload\":\"";
+  Serial.println("After doc :" +String(ESP.getFreeHeap()));
+  // add file input as stream, no deep copy to not overflow RAM
+  while (f.available()) {
+    char c = f.read();
+    // special chars
+    if (c == '\"') output += "\\\"";
+    else if (c == '\\') output += "\\\\";
+    else if (c == '\n') output += "\\n";
+    else if (c == '\r') output += "\\r";
+    else if (c == '\t') output += "\\t";
+    else if (c < 0x20) continue;
+    else output += c;
+  }
+  f.close();
+  Serial.println("After f.close :" +String(ESP.getFreeHeap()));
+
+  // end json with }
+  output += "\"}";
+
+  return output;
+}
+
+void websocketUpdate(){
+  std::vector<String> dataFiles; //filename list
+
+  Dir root = LittleFS.openDir("/");
+  while (root.next()) {
+    String fname = root.fileName();
+    if (fname.indexOf("data") != -1) { //filname includes data
+      dataFiles.push_back(fname);
+    }
+  }
+
+  WebSocketsClient ws;
+  ws.begin("meinpc.local", uint16_t (WEBSOCKET_PORT.toInt()), "/");
+  ws.onEvent(webSocketEvent);
+  Serial.println("after start ws: "+ String(ESP.getFreeHeap()));
+   unsigned long start = millis();
+  while (millis() - start < 3000) { //
+    ws.loop();
+    delay(10);
+  }
+
+  // Ausgabe
+  Serial.println("Gefundene Dateien mit 'data':");
+  for (auto &f : dataFiles) {
+    Serial.println(f);
+    String data = toJson(f);
+    ws.sendTXT(data);
+    ws.loop();
+    delay(100);
+  }
+
+  start = millis();
+  while (millis() - start < 3000) {
+    ws.loop();
+    delay(10);
+  }
+  Serial.println(ESP.getFreeHeap());
+  Serial.println(ESP.getFreeContStack());
+  ws.disconnect();
+  Serial.println("WebSocket geschlossen");
+ 
 }
 
 void listFiles() {
-    Serial.println("Dateien im LittleFS:");
+  Serial.println("Dateien im LittleFS:");
   Dir dir = LittleFS.openDir("/");
   while (dir.next()) {
     Serial.printf("  %s\t (%d Bytes)\n", dir.fileName().c_str(), dir.fileSize());
