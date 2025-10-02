@@ -3,12 +3,12 @@ import asyncio
 import socket
 import websockets
 import requests
+from zeroconf.asyncio import AsyncZeroconf, AsyncServiceInfo
 
 
 CLOUD_TOKEN = ""
 CLOUD_URL = ""
-WEBSOCKET_PORT = ""  # free port from config.env, last entry
-HOST = "0.0.0.0"  # use all network interfaces
+WEBSOCKET_PORT = "" 
 
 #read config.env
 config_file = open("../data/config.env","r").read().split("\n")
@@ -21,11 +21,9 @@ for entity in config_file:
         WEBSOCKET_PORT = entity.split("=")[-1]
 
 
-
-
 # cloud upload
 def create_file(filename, file_content):
-    remote_file_path = filename + ".csv"
+    remote_file_path = filename
 
     url = f"{CLOUD_URL+"/ESP_DATA/"}{remote_file_path}"
     headers = {
@@ -78,10 +76,29 @@ def get_lan_ip():
     return ip
 
 async def main():
+    #mDNS using AsyncZeroconf
     lan_ip = get_lan_ip()
-    print(f"Starte WebSocket-Server auf {HOST}:{WEBSOCKET_PORT} (erreichbar im LAN z.B. unter ws://{lan_ip}:{WEBSOCKET_PORT})")
-    async with websockets.serve(handler, HOST, WEBSOCKET_PORT):
-        await asyncio.Future()  #run until shutdown
+    print(f"LAN-IP: {lan_ip} (WebSocket erreichbar z.B. unter ws://meinpc.local:{WEBSOCKET_PORT})")
+
+    desc = {'path': '/'}
+    info = AsyncServiceInfo(
+        "_http._tcp.local.",
+        "meinpc._http._tcp.local.",
+        addresses=[socket.inet_aton(lan_ip)],
+        port=int (WEBSOCKET_PORT),
+        properties=desc,
+        server="meinpc.local."
+    )
+
+    async with AsyncZeroconf() as azc:
+        await azc.async_register_service(info)
+        print("mDNS-Server für meinpc.local registriert")
+
+        # WebSocket-Server starten
+        async with websockets.serve(handler, "0.0.0.0", WEBSOCKET_PORT):
+            print(f"WebSocket-Server läuft auf Port {WEBSOCKET_PORT}")
+            await asyncio.Future()  #run until Shutdown
+
 
 if __name__ == "__main__":
     asyncio.run(main())
