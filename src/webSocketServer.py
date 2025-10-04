@@ -6,7 +6,6 @@ import requests
 import json
 import pandas as pd
 import datetime
-import time
 from zeroconf.asyncio import AsyncZeroconf, AsyncServiceInfo
 from io import StringIO
 
@@ -48,7 +47,8 @@ def create_file(filename, file_content):
 
 connected_clients = set()
 #websocket connection
-async def handler(websocket, full_df=full_df):
+async def handler(websocket):
+    global full_df #due to problems with random esp logout, to minimize data loss
     print(f"Neue Verbindung von {websocket.remote_address}")
     connected_clients.add(websocket)
     try:
@@ -71,10 +71,16 @@ async def handler(websocket, full_df=full_df):
                     print(f'Exception beim lesen der json massage: {e}')
 
             elif message.startswith('END_UPLOAD'): #got end signal
-                full_df = full_df.sort_values(by='name', ascending=True, ignore_index=True)
-                print(full_df)
-                df_str = full_df.to_csv(sep=";", index=False)
-                create_file("data_"+ datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + ".csv", df_str)
+                try:
+                    if not full_df.empty:
+                        if 'name' in full_df.columns:
+                            full_df = full_df.sort_values(by='name', ascending=True, ignore_index=True)
+                    print(full_df)
+                    df_str = full_df.to_csv(sep=";", index=False)
+                    create_file("data_"+ datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + ".csv", df_str)
+                except Exception as e:
+                    print(e)
+
 
             
     except websockets.ConnectionClosed:

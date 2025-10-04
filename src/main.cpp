@@ -22,14 +22,14 @@ void printSingleData(String s[], size_t len);
 void writeDataToCSV(String filename);
 void apiRequests();
 void webSocketEvent(WStype_t type, uint8_t * payload, size_t length);
-String toJson(String filename);
+String toJson(String filename, WebSocketsClient &ws);
 void websocketUpdate();
 void listFiles();
 void deleteFile(String filename);
 void updateCounterFile();
 
 // global vars
-unsigned long messureDistanceInMillis = 900000; //15 min aka 900 s 
+unsigned long messureDistanceInMillis = 900000; //15 min aka 900 s 900000
 unsigned long MAX_FILE_SIZE = 1024*16; //16kB RAM Limit per file
 unsigned long DATA_ROW_SIZE = 250; // max 250B per Data row
 bool displayON = true;
@@ -89,7 +89,7 @@ void loop() {
   Serial.println("Speicher Belegt: " + String(percent) + "%");
   if (displayON) aalec.print_line(4,"Speicherbelegung: " + String(percent) + "%");
 
-  if(percent > 75) aalec.set_rgb_strip(1,c_red);
+  if(percent > 70) aalec.set_rgb_strip(1,c_red);
   aalec.rgb_show();
 
   connectWifi();
@@ -321,7 +321,7 @@ void writeDataToCSV(String filename){
     header.remove(header.length()-1); //remove last ;
     csv.print(header+"\n");
   }
-  else if ((size + DATA_ROW_SIZE) > 1024){  // MAX_FILE_SIZE
+  else if ((size + DATA_ROW_SIZE) > MAX_FILE_SIZE){  
     Serial.println("Datei ist voll");
 
     currentFileCounter++; //increase counter
@@ -412,7 +412,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   }
 }
 
-String toJson(String filename){
+String toJson(String filename, WebSocketsClient &ws){
 
   File f = LittleFS.open("/"+filename, "r");
   if (!f) {
@@ -422,6 +422,8 @@ String toJson(String filename){
   // create header with basic len
   DynamicJsonDocument doc(512);
   doc["filename"] = filename;
+
+  ws.loop();
 
   // serialize the doc
   String output;
@@ -443,12 +445,14 @@ String toJson(String filename){
     else if (c == '\t') output += "\\t";
     else if (c < 0x20) continue;
     else output += c;
+    ws.loop();
   }
   f.close();
   Serial.println("After f.close :" +String(ESP.getFreeHeap()));
 
   // end json with }
   output += "\"}";
+  ws.loop();
 
   return output;
 }
@@ -470,8 +474,9 @@ void websocketUpdate(){
   WebSocketsClient ws;
   ws.begin("meinpc.local", uint16_t (WEBSOCKET_PORT.toInt()), "/");
   ws.onEvent(webSocketEvent);
+  ws.loop();
   Serial.println("after start ws: "+ String(ESP.getFreeHeap()));
-   unsigned long start = millis();
+  unsigned long start = millis();
   while (millis() - start < 3000) { //
     ws.loop();
     delay(10);
@@ -483,11 +488,21 @@ void websocketUpdate(){
   Serial.println("Gefundene Dateien mit 'data':");
   for (auto &f : dataFiles) {
     Serial.println(f);
-    String data = toJson(f);
+    String data = toJson(f, ws);
     ws.sendTXT(data);
+    start = millis();
+    while (millis() - start < 1000) { //
     ws.loop();
+    delay(10);
+  }
     delay(100);
     deleteFile(f);
+  }
+
+  start = millis();
+    while (millis() - start < 3000) { //
+    ws.loop();
+    delay(10);
   }
 
   //end connection
@@ -511,6 +526,7 @@ void websocketUpdate(){
   disconnectWifi();
   ESP_status = "Status: Btn is pressable";
   if (displayON) aalec.print_line(3, ESP_status);
+  setLEDsOff(5);
 }
 
 void listFiles() {
