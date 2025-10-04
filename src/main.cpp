@@ -81,7 +81,8 @@ void loop() {
   Serial.println(fs_info.usedBytes);
   Serial.print("Freie Bytes: ");
   Serial.println(fs_info.totalBytes - fs_info.usedBytes);
-  Serial.println("Speicher Belegt: "+ String(fs_info.usedBytes / fs_info.totalBytes *100) + "%");
+  Serial.println("Speicher Belegt: "+ String(fs_info.usedBytes / fs_info.totalBytes *100) + "%");//TODO dose not work, why?
+  //TODO make output pretty for display
 
 
   connectWifi();
@@ -99,8 +100,10 @@ void loop() {
   writeDataToCSV(currentFilename + String(currentFileCounter));
   std::fill(std::begin(crutialValues), std::end(crutialValues), "");
 
+  //TODO make new mode to access via buttons and display output, so you do not have to 
   listFiles();
   websocketUpdate();
+  //TODO deleate files after upload.
 
   disconnectWifi();
   if (displayON) aalec.print_line(4,"wifi disconnected");
@@ -442,15 +445,22 @@ void websocketUpdate(){
     delay(10);
   }
 
-  // Ausgabe
+  // send files 
   Serial.println("Gefundene Dateien mit 'data':");
   for (auto &f : dataFiles) {
     Serial.println(f);
     String data = toJson(f);
     ws.sendTXT(data);
     ws.loop();
-    delay(100);
+    delay(1000);
+    deleteFile(f);
   }
+
+  //end connection
+  Serial.println("end connection");
+  ws.sendTXT("END_UPLOAD");
+  ws.loop();
+  delay(1000);
 
   start = millis();
   while (millis() - start < 3000) {

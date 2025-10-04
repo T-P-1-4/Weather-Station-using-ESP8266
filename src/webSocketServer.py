@@ -3,12 +3,18 @@ import asyncio
 import socket
 import websockets
 import requests
+import json
+import pandas as pd
+import datetime
+import time
 from zeroconf.asyncio import AsyncZeroconf, AsyncServiceInfo
+from io import StringIO
 
 
 CLOUD_TOKEN = ""
 CLOUD_URL = ""
 WEBSOCKET_PORT = "" 
+full_df = pd.DataFrame()
 
 #read config.env
 config_file = open("../data/config.env","r").read().split("\n")
@@ -42,7 +48,7 @@ def create_file(filename, file_content):
 
 connected_clients = set()
 #websocket connection
-async def handler(websocket):
+async def handler(websocket, full_df=full_df):
     print(f"Neue Verbindung von {websocket.remote_address}")
     connected_clients.add(websocket)
     try:
@@ -54,6 +60,21 @@ async def handler(websocket):
                     await client.send(f"{websocket.remote_address}: {message}")
                 except Exception:
                     connected_clients.discard(client)
+            # deserialize       
+            if message.startswith('{'):
+                try:
+                    json_massage = json.loads(message)
+                    massage_df = pd.DataFrame()
+                    massage_df = pd.read_csv(StringIO(json_massage["payload"]), sep=";")
+                    full_df = pd.concat([full_df, massage_df], ignore_index= True)
+                except Exception as e:
+                    print(f'Exception beim lesen der json massage: {e}')
+
+            elif message.startswith('END_UPLOAD'): #got end signal
+                full_df = full_df.sort_values(by='name', ascending=True, ignore_index=True)
+                print(full_df)
+                df_str = full_df.to_csv(sep=";", index=False)
+                create_file("data_"+ datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + ".csv", df_str)
 
             
     except websockets.ConnectionClosed:
