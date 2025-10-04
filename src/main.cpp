@@ -33,6 +33,8 @@ unsigned long messureDistanceInMillis = 900000; //15 min aka 900 s
 unsigned long MAX_FILE_SIZE = 1024*16; //16kB RAM Limit per file
 unsigned long DATA_ROW_SIZE = 250; // max 250B per Data row
 bool displayON = true;
+bool wsMode = false;
+int lastRotate = 0;
 float currentTemp = 0;
 float currentPressure = 0;
 String WIFI_SSID, WIFI_PASS, WEATHER_API_TOKEN, WEATHER_API_URL,WEATHER_API_FINGERPRINT, CLOUD_TOKEN, CLOUD_FINGERPRINT, CLOUD_URL, WEBSOCKET_PORT; // Vars from .env file
@@ -44,6 +46,7 @@ String crutialValues [sizeof(crutialColumns)/sizeof(crutialColumns[0])]; // plac
 String currentFilename = "data";
 int currentFileCounter = 1;
 FSInfo fs_info;
+String ESP_status = "";
 
 
 void setup() {
@@ -68,6 +71,7 @@ void setup() {
   setLEDsOff(5);
   loadEnvVars();
   loadPoi();
+  aalec.reset_rotate(0);
 }
 
 void loop() {
@@ -81,12 +85,14 @@ void loop() {
   Serial.println(fs_info.usedBytes);
   Serial.print("Freie Bytes: ");
   Serial.println(fs_info.totalBytes - fs_info.usedBytes);
-  Serial.println("Speicher Belegt: "+ String(fs_info.usedBytes / fs_info.totalBytes *100) + "%");//TODO dose not work, why?
-  //TODO make output pretty for display
+  float percent = (float)fs_info.usedBytes / fs_info.totalBytes * 100;
+  Serial.println("Speicher Belegt: " + String(percent) + "%");
+  if (displayON) aalec.print_line(4,"Speicherbelegung: " + String(percent) + "%");
 
+  if(percent > 75) aalec.set_rgb_strip(1,c_red);
+  aalec.rgb_show();
 
   connectWifi();
-  if (displayON) aalec.print_line(4,"wifi connected");
   apiRequests();
   
   // update values of p and t
@@ -100,19 +106,15 @@ void loop() {
   writeDataToCSV(currentFilename + String(currentFileCounter));
   std::fill(std::begin(crutialValues), std::end(crutialValues), "");
 
-  //TODO make new mode to access via buttons and display output, so you do not have to 
   listFiles();
-  websocketUpdate();
-  //TODO deleate files after upload.
-
   disconnectWifi();
-  if (displayON) aalec.print_line(4,"wifi disconnected");
 
   //test read file:
   File f = LittleFS.open("/"+currentFilename+ String(currentFileCounter) +".csv", "r");
   Serial.println(f.readString());
 
-
+  ESP_status = "Status: Btn is pressable";
+  if (displayON) aalec.print_line(3,ESP_status);
   unsigned long startTime = millis();
   // wait till difference between start and current time is less than delayTime
   while ((millis() - startTime < messureDistanceInMillis)){
@@ -120,24 +122,27 @@ void loop() {
     if (waitForButtonPress(2000))  displayON = !displayON;
 
     if (displayON){
-    aalec.print_line(2, "Druck: "+ String(currentPressure));
-    aalec.print_line(3,"Temperatur: "+String(currentTemp));
+      aalec.print_line(1,"T: "+String(currentTemp) + " °C");
+      aalec.print_line(2, "p: "+ String(currentPressure) + " mb");
+      aalec.print_line(3,ESP_status);
+      aalec.print_line(4,"Speicherbelegung: " + String(percent) + "%");
+      lastRotate == 0 ? aalec.print_line(5,"Btn Press to turn display off") : aalec.print_line(5,"Btn Press to turn ws on");
+      
     }
   }
 }
 
 void setLEDsOff(int n){
   // turn all LEDs off
-  RgbColor colors[n];
   for (int i = 0; i < n; i++) {
-      colors[i] = c_off;
+      aalec.set_rgb_strip(i, c_off);
   }
-  aalec.set_rgb_strip(colors);
+  aalec.rgb_show();
 }
 
 void setDisplayOff(){
   // turn all Display lines off 
-  for (int i=0;i<5;i++){
+  for (int i=1;i<=5;i++){
     aalec.print_line(i,"");
   }
 }
@@ -146,8 +151,27 @@ bool waitForButtonPress(uint16_t delayTime){
   unsigned long startTime = millis();
   // wait till difference between start and current time is less than delayTime
   while ((millis() - startTime < delayTime)){
-    
-    if (aalec.get_button())
+    int currentRotate = aalec.get_rotate() % 2;
+    if (currentRotate != lastRotate && displayON){
+      lastRotate = currentRotate;
+      if (lastRotate == 0){ // display auswahl
+        wsMode = false;
+        aalec.print_line(5,"Btn Press to turn display off");
+      }else { // ws auswahl
+        wsMode = true;
+        aalec.print_line(5,"Btn Press to turn ws on");
+      }
+    }
+    else{
+      aalec.reset_rotate(lastRotate);
+    }
+
+    if (displayON && aalec.get_button() && wsMode){
+      websocketUpdate(); // needs some seconds
+      delay(10);         // Small delay to avoid busy-waiting
+    }
+
+    else if (aalec.get_button())
     {
       delay(750);   // delay so that button is not pressed several times 
       if (displayON) setDisplayOff(); // if display was on, clear display
@@ -211,11 +235,13 @@ void loadEnvVars(){
 
 void connectWifi(){
   Serial.println("\nConnecting to WiFi...");
+  ESP_status = "Status: Wifi is connecting";
+  if (displayON) aalec.print_line(3,ESP_status);
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   //Due to problems with dns server I had to change to google dns
   while (WiFi.status() != WL_CONNECTED) {
-    waitForButtonPress(1000);
+    delay(1000);
     Serial.print(".");
   }
   IPAddress local = WiFi.localIP();
@@ -226,14 +252,18 @@ void connectWifi(){
   WiFi.config(local, gateway, subnet, IPAddress(8,8,8,8), IPAddress(8,8,4,4));
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   while (WiFi.status() != WL_CONNECTED) {
-    waitForButtonPress(1000);
+    delay(1000);
     Serial.print(".");
   }
   Serial.println("\r\nWiFi connected!");
+  ESP_status = "Status: Wifi connected";
+  if (displayON) aalec.print_line(3,"Status: Wifi connected");
 }
 
 void disconnectWifi(){
   WiFi.disconnect();
+  ESP_status = "Status: Wifi disconnected";
+  if (displayON) aalec.print_line(3,ESP_status);
 }
 
 void loadPoi(){
@@ -296,9 +326,6 @@ void writeDataToCSV(String filename){
 
     currentFileCounter++; //increase counter
     
-    //if (cloudUpload(currentFilename + String(currentFileCounter-1) + ".csv")){//upload old file
-    //  deleteFile(currentFilename + String(currentFileCounter-1) +".csv");
-    //} 
     writeDataToCSV(currentFilename + String(currentFileCounter)); //safe data to new file
     updateCounterFile();
   }
@@ -315,6 +342,8 @@ void writeDataToCSV(String filename){
 }
 
 void apiRequests(){
+  ESP_status = "Status: API requests";
+  if (displayON) aalec.print_line(3,ESP_status);
   WiFiClientSecure client;
   client.setFingerprint(WEATHER_API_FINGERPRINT.c_str());
   HTTPClient https;
@@ -330,7 +359,6 @@ void apiRequests(){
 
     String url = WEATHER_API_URL + "key=" + WEATHER_API_TOKEN + "&q=" + point + "&aqi=no";
     Serial.println("Request URL: " + url);
-    waitForButtonPress(50);
 
     if (https.begin(client, url)) {
       int httpCode = https.GET();
@@ -380,6 +408,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
       Serial.println("Nachricht erhalten.");
       break;
     case WStype_BIN: Serial.println("Binärnachricht erhalten"); break;
+    default:  break;
   }
 }
 
@@ -425,6 +454,7 @@ String toJson(String filename){
 }
 
 void websocketUpdate(){
+  connectWifi();
   std::vector<String> dataFiles; //filename list
 
   Dir root = LittleFS.openDir("/");
@@ -434,6 +464,8 @@ void websocketUpdate(){
       dataFiles.push_back(fname);
     }
   }
+  ESP_status = "Status: ws is connecting";
+  if (displayON) aalec.print_line(3,ESP_status);
 
   WebSocketsClient ws;
   ws.begin("meinpc.local", uint16_t (WEBSOCKET_PORT.toInt()), "/");
@@ -444,6 +476,8 @@ void websocketUpdate(){
     ws.loop();
     delay(10);
   }
+  ESP_status = "Status: ws connected";
+  if (displayON) aalec.print_line(3,ESP_status);
 
   // send files 
   Serial.println("Gefundene Dateien mit 'data':");
@@ -452,7 +486,7 @@ void websocketUpdate(){
     String data = toJson(f);
     ws.sendTXT(data);
     ws.loop();
-    delay(1000);
+    delay(100);
     deleteFile(f);
   }
 
@@ -463,15 +497,20 @@ void websocketUpdate(){
   delay(1000);
 
   start = millis();
-  while (millis() - start < 3000) {
+  while (millis() - start < 2000) {
     ws.loop();
     delay(10);
   }
   Serial.println(ESP.getFreeHeap());
   Serial.println(ESP.getFreeContStack());
   ws.disconnect();
+  ESP_status = "Status: ws disconnected";
+  if (displayON) aalec.print_line(3,ESP_status);
   Serial.println("WebSocket geschlossen");
  
+  disconnectWifi();
+  ESP_status = "Status: Btn is pressable";
+  if (displayON) aalec.print_line(3, ESP_status);
 }
 
 void listFiles() {
