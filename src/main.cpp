@@ -47,6 +47,7 @@ String currentFilename = "data";
 int currentFileCounter = 1;
 FSInfo fs_info;
 String ESP_status = "";
+String lastTimestamp = "";
 
 
 void setup() {
@@ -101,6 +102,7 @@ void loop() {
 
   //write local data to file
   crutialValues[0] = "ESP";
+  crutialValues[3] = lastTimestamp;
   crutialValues[5] = String (currentTemp);
   crutialValues[12] = String (currentPressure);
   writeDataToCSV(currentFilename + String(currentFileCounter));
@@ -386,6 +388,7 @@ void apiRequests(){
               crutialValues[i] = String(doc["current"][crutialColumns[i]]);
             }
         }
+        lastTimestamp = crutialValues[3];
         //printSingleData(crutialValues, int(sizeof(crutialValues)/sizeof(crutialValues[0])));
 
       } else {
