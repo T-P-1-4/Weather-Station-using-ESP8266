@@ -30,7 +30,7 @@ for entity in config_file:
 def create_file(filename, file_content):
     remote_file_path = filename
 
-    url = f"{CLOUD_URL+"/ESP_DATA/"}{remote_file_path}"
+    url = f"{CLOUD_URL}/ESP_DATA/{remote_file_path}"
     headers = {
         "Authorization": f"Bearer {CLOUD_TOKEN}"
     }
